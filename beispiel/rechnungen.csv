@@ -1,0 +1,4 @@
+Rechnungsnummer,Mitarbeiter,Betrag,Status,Zahlungsdatum
+RE-1001,Max Mustermann,1200.0,Bezahlt,2025-05-03
+RE-1002,Lisa Beispiel,950.0,Bezahlt,2025-05-07
+RE-1003,Max Mustermann,500.0,Offen,2025-04-28
