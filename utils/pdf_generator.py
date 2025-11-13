@@ -1,5 +1,5 @@
 from io import BytesIO
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfgen import canvas
 import pandas as pd
 
@@ -22,20 +22,40 @@ def _format_date(dt) -> str:
     except Exception:
         return str(dt)
 
-def _draw_header(c, width, height, mitarbeiter: str):
-    """Seitenkopf + Tabellenkopf zeichnen, gibt neue y-Position und Spalten-X zurück."""
-    y = height - 50
+def _draw_header(c, width, height, mitarbeiter: str, title_suffix: str = ""):
+    """
+    Seitenkopf + Tabellenkopf zeichnen.
+    title_suffix: "" / "A) ..." / "B) ..."
+    Gibt neue y-Position und Spalten-X zurück.
+    """
+    y = height - 40
     c.setFont("Helvetica-Bold", 16)
     c.drawString(40, y, "Provisionsabrechnung")
     y -= 20
     c.setFont("Helvetica", 12)
     c.drawString(40, y, f"Mitarbeiter: {mitarbeiter}")
-    y -= 30
+    y -= 25
+
+    if title_suffix:
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(40, y, title_suffix)
+        y -= 20
 
     # Tabellenkopf
     c.setFont("Helvetica-Bold", 9)
+
+    # Querformat → mehr Breite nutzen
+    # [Re-Nr., Kunde, Projekt, Datum, Art, Netto, Provision]
+    col_x = [
+        40,    # Rechnungsnummer
+        120,   # Kunde
+        280,   # Projekt
+        480,   # Datum
+        540,   # Art
+        600,   # Netto
+        700,   # Provision
+    ]
     headers = ["Re-Nr.", "Kunde", "Projekt", "Datum", "Art", "Netto", "Provision"]
-    col_x = [40, 90, 230, 370, 420, 460, 520]
 
     for x, h in zip(col_x, headers):
         c.drawString(x, y, h)
@@ -84,8 +104,9 @@ def exportiere_pdfs_in_memory(df):
     for mitarbeiter, gruppe in df.groupby("Mitarbeiter"):
         try:
             buffer = BytesIO()
-            c = canvas.Canvas(buffer, pagesize=A4)
-            width, height = A4
+            # Querformat A4
+            c = canvas.Canvas(buffer, pagesize=landscape(A4))
+            width, height = landscape(A4)
 
             # nach Datum, dann Rechnungsnummer sortieren
             gruppe = gruppe.sort_values(by=["Zahlungsdatum", "Rechnungsnummer"])
@@ -95,27 +116,26 @@ def exportiere_pdfs_in_memory(df):
             paid = gruppe[status == "Bezahlt"].copy()
             open_ = gruppe[status != "Bezahlt"].copy()
 
-            # Initiale Seite + Kopf für Block A
-            y, col_x = _draw_header(c, width, height, mitarbeiter)
-            c.setFont("Helvetica-Bold", 11)
-            c.drawString(40, y + 10, "A) Bezahlte Rechnungen (Auszahlungsbasis)")
+            # -------------------------
+            # Block A: bezahlte Rechnungen
+            # -------------------------
+            y, col_x = _draw_header(
+                c, width, height, mitarbeiter,
+                "A) Bezahlte Rechnungen (Auszahlungsbasis)"
+            )
             c.setFont("Helvetica", 9)
-            y -= 15
 
             total_netto_paid = 0.0
             total_prov_paid = 0.0
 
-            # -------------------------
-            # Block A: bezahlte Rechnungen
-            # -------------------------
             for _, row in paid.iterrows():
                 if y < 60:
                     c.showPage()
-                    y, col_x = _draw_header(c, width, height, mitarbeiter)
-                    c.setFont("Helvetica-Bold", 11)
-                    c.drawString(40, y + 10, "A) Bezahlte Rechnungen (Auszahlungsbasis)")
+                    y, col_x = _draw_header(
+                        c, width, height, mitarbeiter,
+                        "A) Bezahlte Rechnungen (Auszahlungsbasis)"
+                    )
                     c.setFont("Helvetica", 9)
-                    y -= 15
 
                 re_nr = str(row.get("Rechnungsnummer", ""))
                 kunde = str(row.get("Kunde", ""))[:35]
@@ -146,11 +166,12 @@ def exportiere_pdfs_in_memory(df):
             # Summenzeile für bezahlte Rechnungen
             if y < 80:
                 c.showPage()
-                y, col_x = _draw_header(c, width, height, mitarbeiter)
-                c.setFont("Helvetica-Bold", 11)
-                c.drawString(40, y + 10, "A) Bezahlte Rechnungen (Auszahlungsbasis)")
+                y, col_x = _draw_header(
+                    c, width, height, mitarbeiter,
+                    "A) Bezahlte Rechnungen (Auszahlungsbasis)"
+                )
                 c.setFont("Helvetica", 9)
-                y -= 25
+                y -= 10
 
             y -= 5
             c.line(40, y, width - 40, y)
@@ -165,11 +186,11 @@ def exportiere_pdfs_in_memory(df):
             # -------------------------
             if not open_.empty:
                 c.showPage()
-                y, col_x = _draw_header(c, width, height, mitarbeiter)
-                c.setFont("Helvetica-Bold", 11)
-                c.drawString(40, y + 10, "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)")
+                y, col_x = _draw_header(
+                    c, width, height, mitarbeiter,
+                    "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)"
+                )
                 c.setFont("Helvetica", 9)
-                y -= 15
 
                 total_netto_open = 0.0
                 total_prov_open = 0.0
@@ -177,11 +198,11 @@ def exportiere_pdfs_in_memory(df):
                 for _, row in open_.iterrows():
                     if y < 60:
                         c.showPage()
-                        y, col_x = _draw_header(c, width, height, mitarbeiter)
-                        c.setFont("Helvetica-Bold", 11)
-                        c.drawString(40, y + 10, "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)")
+                        y, col_x = _draw_header(
+                            c, width, height, mitarbeiter,
+                            "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)"
+                        )
                         c.setFont("Helvetica", 9)
-                        y -= 15
 
                     re_nr = str(row.get("Rechnungsnummer", ""))
                     kunde = str(row.get("Kunde", ""))[:35]
@@ -212,11 +233,12 @@ def exportiere_pdfs_in_memory(df):
                 # Summenzeile Vorschau
                 if y < 80:
                     c.showPage()
-                    y, col_x = _draw_header(c, width, height, mitarbeiter)
-                    c.setFont("Helvetica-Bold", 11)
-                    c.drawString(40, y + 10, "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)")
+                    y, col_x = _draw_header(
+                        c, width, height, mitarbeiter,
+                        "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)"
+                    )
                     c.setFont("Helvetica", 9)
-                    y -= 25
+                    y -= 10
 
                 y -= 5
                 c.line(40, y, width - 40, y)
