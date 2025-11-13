@@ -9,7 +9,6 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
     if rechnungen_file.name.endswith(".xlsx"):
         rechnungen = pd.read_excel(rechnungen_file)
     else:
-        # WICHTIG: ; als Separator benutzen
         rechnungen = pd.read_csv(rechnungen_file, sep=";", encoding="utf-8")
 
     # -------------------------
@@ -23,13 +22,18 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
     else:
         raise ValueError("Spalte 'Rechnungsnummer' bzw. 'Rechnungsnr.' nicht gefunden.")
 
-    # Zahlungsdatum: wir nutzen 'letztes Bezahldatum' als Zahlungsdatum, wenn vorhanden
+    # Zahlungsdatum / Rechnungsdatum
     if "Zahlungsdatum" in rechnungen.columns:
         pass
     elif "letztes Bezahldatum" in rechnungen.columns:
         rechnungen = rechnungen.rename(columns={"letztes Bezahldatum": "Zahlungsdatum"})
     else:
         raise ValueError("Spalte 'Zahlungsdatum' oder 'letztes Bezahldatum' nicht gefunden.")
+
+    # Optional: Rechnungsdatum (für Filter bei offenen Rechnungen)
+    has_rech_datum = False
+    if "Rechnungsdatum" in rechnungen.columns:
+        has_rech_datum = True
 
     # Status
     if "Status" not in rechnungen.columns:
@@ -40,7 +44,7 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
         if col not in rechnungen.columns:
             rechnungen[col] = ""
 
-    # Fremdleistung-Spalte optional (falls du sie später ergänzt)
+    # Fremdleistung-Spalte optional
     if "Fremdleistung" not in rechnungen.columns:
         rechnungen["Fremdleistung"] = ""
 
@@ -60,6 +64,10 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
     rechnungen["Zahlungsdatum"] = pd.to_datetime(
         rechnungen["Zahlungsdatum"], errors="coerce", dayfirst=True
     )
+    if has_rech_datum:
+        rechnungen["Rechnungsdatum"] = pd.to_datetime(
+            rechnungen["Rechnungsdatum"], errors="coerce", dayfirst=True
+        )
 
     # Flag Fremdleistung
     rechnungen["Ist_Fremdleistung"] = (
@@ -73,19 +81,27 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
 
     # -------------------------
     # Provisionen einlesen
-    # Erwartet: Mitarbeiter, Eigenleistung, Fremdleistung
     # -------------------------
     provisionen = pd.read_excel(provisionen_file)
 
     # -------------------------
-    # Filter: nur bezahlte Rechnungen im Zeitraum
+    # Filter: Zeitraum
+    # - Bezahlte: nach Zahlungsdatum
+    # - Offene: nach Rechnungsdatum (falls vorhanden), sonst ohne Datumsfilter
     # -------------------------
     cutoff_date = datetime.now() - DateOffset(months=monate_rueckblick)
 
-    rechnungen = rechnungen[
-        (rechnungen["Status"] == "Bezahlt") &
-        (rechnungen["Zahlungsdatum"] >= cutoff_date)
-    ].copy()
+    status = rechnungen["Status"].astype(str)
+
+    mask_bezahlt = (status == "Bezahlt") & (rechnungen["Zahlungsdatum"] >= cutoff_date)
+
+    if has_rech_datum:
+        mask_offen = (status != "Bezahlt") & (rechnungen["Rechnungsdatum"] >= cutoff_date)
+    else:
+        # wenn kein Rechnungsdatum vorhanden ist → alle offenen berücksichtigen
+        mask_offen = (status != "Bezahlt")
+
+    rechnungen = rechnungen[mask_bezahlt | mask_offen].copy()
 
     if rechnungen.empty:
         return pd.DataFrame(
@@ -97,6 +113,7 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
                 "Netto",
                 "Provision",
                 "Zahlungsdatum",
+                "Status",
                 "Ist_Fremdleistung",
             ]
         )
@@ -150,6 +167,7 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
                 "Netto",
                 "Provision",
                 "Zahlungsdatum",
+                "Status",
                 "Ist_Fremdleistung",
             ]
         )
@@ -165,6 +183,7 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
             "Netto",
             "Provision",
             "Zahlungsdatum",
+            "Status",
             "Ist_Fremdleistung",
         ]
     ]
