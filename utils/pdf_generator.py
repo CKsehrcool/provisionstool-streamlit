@@ -10,7 +10,6 @@ def _format_eur(value: float) -> str:
     except (TypeError, ValueError):
         return ""
     s = f"{value:,.2f}"
-    # US-Format -> deutsch
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return s + " €"
 
@@ -56,8 +55,11 @@ def exportiere_pdfs_in_memory(df):
       - Netto
       - Provision
       - Zahlungsdatum
+      - Status
       - Ist_Fremdleistung (bool)
-    Gibt eine Liste von (dateiname, BytesIO)-Tuples zurück.
+
+    Block A: Bezahlte Rechnungen (Auszahlungsbasis)
+    Block B: Offene Rechnungen (Vorschau, nicht in Auszahlungssumme enthalten)
     """
     dateien = []
 
@@ -65,8 +67,15 @@ def exportiere_pdfs_in_memory(df):
         return dateien
 
     required_cols = [
-        "Mitarbeiter", "Rechnungsnummer", "Kunde", "Projekt",
-        "Netto", "Provision", "Zahlungsdatum", "Ist_Fremdleistung"
+        "Mitarbeiter",
+        "Rechnungsnummer",
+        "Kunde",
+        "Projekt",
+        "Netto",
+        "Provision",
+        "Zahlungsdatum",
+        "Status",
+        "Ist_Fremdleistung",
     ]
     for col in required_cols:
         if col not in df.columns:
@@ -78,22 +87,35 @@ def exportiere_pdfs_in_memory(df):
             c = canvas.Canvas(buffer, pagesize=A4)
             width, height = A4
 
-            # sortiere nach Datum, dann Rechnungsnummer
+            # nach Datum, dann Rechnungsnummer sortieren
             gruppe = gruppe.sort_values(by=["Zahlungsdatum", "Rechnungsnummer"])
 
+            # in bezahlt / offen splitten
+            status = gruppe["Status"].astype(str)
+            paid = gruppe[status == "Bezahlt"].copy()
+            open_ = gruppe[status != "Bezahlt"].copy()
+
+            # Initiale Seite + Kopf für Block A
             y, col_x = _draw_header(c, width, height, mitarbeiter)
-
-            total_netto = 0.0
-            total_prov = 0.0
-
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(40, y + 10, "A) Bezahlte Rechnungen (Auszahlungsbasis)")
             c.setFont("Helvetica", 9)
+            y -= 15
 
-            for _, row in gruppe.iterrows():
-                # Seitenumbruch
+            total_netto_paid = 0.0
+            total_prov_paid = 0.0
+
+            # -------------------------
+            # Block A: bezahlte Rechnungen
+            # -------------------------
+            for _, row in paid.iterrows():
                 if y < 60:
                     c.showPage()
                     y, col_x = _draw_header(c, width, height, mitarbeiter)
+                    c.setFont("Helvetica-Bold", 11)
+                    c.drawString(40, y + 10, "A) Bezahlte Rechnungen (Auszahlungsbasis)")
                     c.setFont("Helvetica", 9)
+                    y -= 15
 
                 re_nr = str(row.get("Rechnungsnummer", ""))
                 kunde = str(row.get("Kunde", ""))[:35]
@@ -103,8 +125,8 @@ def exportiere_pdfs_in_memory(df):
                 netto = float(row.get("Netto", 0.0) or 0.0)
                 prov = float(row.get("Provision", 0.0) or 0.0)
 
-                total_netto += netto
-                total_prov += prov
+                total_netto_paid += netto
+                total_prov_paid += prov
 
                 values = [
                     re_nr,
@@ -121,19 +143,88 @@ def exportiere_pdfs_in_memory(df):
 
                 y -= 15
 
-            # Summenzeile
+            # Summenzeile für bezahlte Rechnungen
             if y < 80:
                 c.showPage()
                 y, col_x = _draw_header(c, width, height, mitarbeiter)
+                c.setFont("Helvetica-Bold", 11)
+                c.drawString(40, y + 10, "A) Bezahlte Rechnungen (Auszahlungsbasis)")
                 c.setFont("Helvetica", 9)
+                y -= 25
 
             y -= 5
             c.line(40, y, width - 40, y)
             y -= 15
             c.setFont("Helvetica-Bold", 10)
-            c.drawString(40, y, "Summen:")
-            c.drawString(col_x[5], y, _format_eur(total_netto))
-            c.drawString(col_x[6], y, _format_eur(total_prov))
+            c.drawString(40, y, "Summe auszuzahlende Provision:")
+            c.drawString(col_x[5], y, _format_eur(total_netto_paid))
+            c.drawString(col_x[6], y, _format_eur(total_prov_paid))
+
+            # -------------------------
+            # Block B: offene Rechnungen (Vorschau)
+            # -------------------------
+            if not open_.empty:
+                c.showPage()
+                y, col_x = _draw_header(c, width, height, mitarbeiter)
+                c.setFont("Helvetica-Bold", 11)
+                c.drawString(40, y + 10, "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)")
+                c.setFont("Helvetica", 9)
+                y -= 15
+
+                total_netto_open = 0.0
+                total_prov_open = 0.0
+
+                for _, row in open_.iterrows():
+                    if y < 60:
+                        c.showPage()
+                        y, col_x = _draw_header(c, width, height, mitarbeiter)
+                        c.setFont("Helvetica-Bold", 11)
+                        c.drawString(40, y + 10, "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)")
+                        c.setFont("Helvetica", 9)
+                        y -= 15
+
+                    re_nr = str(row.get("Rechnungsnummer", ""))
+                    kunde = str(row.get("Kunde", ""))[:35]
+                    projekt = str(row.get("Projekt", ""))[:35]
+                    datum = _format_date(row.get("Zahlungsdatum"))
+                    art = "Fremd" if bool(row.get("Ist_Fremdleistung")) else "Eigen"
+                    netto = float(row.get("Netto", 0.0) or 0.0)
+                    prov = float(row.get("Provision", 0.0) or 0.0)
+
+                    total_netto_open += netto
+                    total_prov_open += prov
+
+                    values = [
+                        re_nr,
+                        kunde,
+                        projekt,
+                        datum,
+                        art,
+                        _format_eur(netto),
+                        _format_eur(prov),
+                    ]
+
+                    for x, v in zip(col_x, values):
+                        c.drawString(x, y, str(v))
+
+                    y -= 15
+
+                # Summenzeile Vorschau
+                if y < 80:
+                    c.showPage()
+                    y, col_x = _draw_header(c, width, height, mitarbeiter)
+                    c.setFont("Helvetica-Bold", 11)
+                    c.drawString(40, y + 10, "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)")
+                    c.setFont("Helvetica", 9)
+                    y -= 25
+
+                y -= 5
+                c.line(40, y, width - 40, y)
+                y -= 15
+                c.setFont("Helvetica-Bold", 10)
+                c.drawString(40, y, "Summe Provisionsvorschau (offene Rechnungen):")
+                c.drawString(col_x[5], y, _format_eur(total_netto_open))
+                c.drawString(col_x[6], y, _format_eur(total_prov_open))
 
             c.save()
             buffer.seek(0)
@@ -144,4 +235,3 @@ def exportiere_pdfs_in_memory(df):
             print(f"❌ Fehler bei PDF für {mitarbeiter}: {e}")
 
     return dateien
-
