@@ -2,73 +2,68 @@ import pandas as pd
 from datetime import datetime
 from pandas.tseries.offsets import DateOffset
 
-def _read_rechnungen(rechnungen_file):
-    """CSV/Excel robust einlesen (deutsches Format, ; als Separator)."""
+def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
+    # -------------------------
+    # Rechnungen einlesen (CSV ;-getrennt, deutsches Format)
+    # -------------------------
     if rechnungen_file.name.endswith(".xlsx"):
         rechnungen = pd.read_excel(rechnungen_file)
     else:
-        # CSV mit ; getrennt
-        try:
-            rechnungen = pd.read_csv(rechnungen_file, sep=";", encoding="utf-8")
-        except Exception:
-            # Fallback, falls das mal anders ist
-            rechnungen = pd.read_csv(rechnungen_file)
-    return rechnungen
+        # WICHTIG: ; als Separator benutzen
+        rechnungen = pd.read_csv(rechnungen_file, sep=";", encoding="utf-8")
 
-
-def _prepare_columns(rechnungen: pd.DataFrame) -> pd.DataFrame:
-    """Spalten auf die erwarteten Namen/Typen bringen."""
-    df = rechnungen.copy()
-
-    # Rechnungsnummer-Spalte ermitteln
-    if "Rechnungsnummer" in df.columns:
-        re_col = "Rechnungsnummer"
-    elif "Rechnungsnr." in df.columns:
-        re_col = "Rechnungsnr."
-        df = df.rename(columns={"Rechnungsnr.": "Rechnungsnummer"})
+    # -------------------------
+    # Spalten aufräumen / umbenennen
+    # -------------------------
+    # Rechnungsnummer
+    if "Rechnungsnummer" in rechnungen.columns:
+        pass
+    elif "Rechnungsnr." in rechnungen.columns:
+        rechnungen = rechnungen.rename(columns={"Rechnungsnr.": "Rechnungsnummer"})
     else:
         raise ValueError("Spalte 'Rechnungsnummer' bzw. 'Rechnungsnr.' nicht gefunden.")
 
-    # Zahlungsdatum: wir nutzen 'letztes Bezahldatum' als Zahlungsdatum
-    if "Zahlungsdatum" in df.columns:
-        date_col = "Zahlungsdatum"
-    elif "letztes Bezahldatum" in df.columns:
-        date_col = "letztes Bezahldatum"
-        df = df.rename(columns={"letztes Bezahldatum": "Zahlungsdatum"})
+    # Zahlungsdatum
+    if "Zahlungsdatum" in rechnungen.columns:
+        pass
+    elif "letztes Bezahldatum" in rechnungen.columns:
+        rechnungen = rechnungen.rename(columns={"letztes Bezahldatum": "Zahlungsdatum"})
     else:
         raise ValueError("Spalte 'Zahlungsdatum' oder 'letztes Bezahldatum' nicht gefunden.")
 
-    # Status sicherstellen
-    if "Status" not in df.columns:
-        raise ValueError("Spalte 'Status' nicht gefunden (erwarte z.B. 'Bezahlt' / 'Unbezahlt').")
+    # Status
+    if "Status" not in rechnungen.columns:
+        raise ValueError("Spalte 'Status' nicht gefunden.")
 
-    # Fremdleistung-Spalte ggf. anlegen
-    if "Fremdleistung" not in df.columns:
-        df["Fremdleistung"] = ""
-
-    # Kunde / Projekt ggf. anlegen
+    # Kunde / Projekt ggf. ergänzen
     for col in ["Kunde", "Projekt"]:
-        if col not in df.columns:
-            df[col] = ""
+        if col not in rechnungen.columns:
+            rechnungen[col] = ""
 
-    # Netto in float umwandeln (deutsches Zahlenformat: Punkt = Tausender, Komma = Dezimal)
-    if "Netto" not in df.columns:
+    # Fremdleistung-Spalte optional (falls du sie später ergänzt)
+    if "Fremdleistung" not in rechnungen.columns:
+        rechnungen["Fremdleistung"] = ""
+
+    # Netto aus deutschem Format in float bringen
+    if "Netto" not in rechnungen.columns:
         raise ValueError("Spalte 'Netto' nicht gefunden.")
 
     netto_str = (
-        df["Netto"]
+        rechnungen["Netto"]
         .astype(str)
-        .str.replace(".", "", regex=False)   # Tausenderpunkt entfernen
+        .str.replace(".", "", regex=False)   # Tausenderpunkte löschen
         .str.replace(",", ".", regex=False)  # Komma -> Punkt
     )
-    df["Netto"] = pd.to_numeric(netto_str, errors="coerce").fillna(0.0)
+    rechnungen["Netto"] = pd.to_numeric(netto_str, errors="coerce").fillna(0.0)
 
-    # Zahlungsdatum in echtes Datum (Tag zuerst)
-    df["Zahlungsdatum"] = pd.to_datetime(df["Zahlungsdatum"], errors="coerce", dayfirst=True)
+    # Datum parsen (deutsches Format)
+    rechnungen["Zahlungsdatum"] = pd.to_datetime(
+        rechnungen["Zahlungsdatum"], errors="coerce", dayfirst=True
+    )
 
     # Flag Fremdleistung
-    df["Ist_Fremdleistung"] = (
-        df["Fremdleistung"]
+    rechnungen["Ist_Fremdleistung"] = (
+        rechnungen["Fremdleistung"]
         .fillna("")
         .astype(str)
         .str.strip()
@@ -76,20 +71,14 @@ def _prepare_columns(rechnungen: pd.DataFrame) -> pd.DataFrame:
         .isin(["ja", "yes", "y"])
     )
 
-    return df
-
-
-def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
     # -------------------------
-    # Dateien einlesen
+    # Provisionen einlesen
+    # Erwartet: Mitarbeiter, Eigenleistung, Fremdleistung
     # -------------------------
-    rechnungen_raw = _read_rechnungen(rechnungen_file)
-    rechnungen = _prepare_columns(rechnungen_raw)
-
     provisionen = pd.read_excel(provisionen_file)
 
     # -------------------------
-    # Datumslogik / Filter: nur bezahlte Rechnungen im Zeitraum
+    # Filter: nur bezahlte Rechnungen im Zeitraum
     # -------------------------
     cutoff_date = datetime.now() - DateOffset(months=monate_rueckblick)
 
@@ -98,7 +87,6 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
         (rechnungen["Zahlungsdatum"] >= cutoff_date)
     ].copy()
 
-    # Wenn nach dem Filter nichts übrig ist → leeres Ergebnis
     if rechnungen.empty:
         return pd.DataFrame(
             columns=[
@@ -114,43 +102,42 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
         )
 
     # -------------------------
-    # Ergebnisliste für alle Mitarbeiter
+    # Provisionslogik pro Mitarbeiter
     # -------------------------
     alle = []
 
-    for _, mitarbeiter in provisionen.iterrows():
-        name = mitarbeiter.get("Mitarbeiter")
-        provision_eigen = mitarbeiter.get("Eigenleistung", 0.0)    # % auf Eigenleistungen
-        provision_fremd = mitarbeiter.get("Fremdleistung", float("nan"))  # % auf Fremdleistungen
+    for _, row in provisionen.iterrows():
+        mitarbeiter = row.get("Mitarbeiter")
+        prov_eigen = float(row.get("Eigenleistung", 0) or 0)
+        prov_fremd = row.get("Fremdleistung")  # kann NaN sein
 
         df = rechnungen.copy()
         df["Provision"] = 0.0
 
-        # --- Eigenleistungen: jeder bekommt Provision ---
+        # Eigenleistung: alle Rechnungen ohne Fremdleistung
         mask_eigen = ~df["Ist_Fremdleistung"]
         df.loc[mask_eigen, "Provision"] = (
-            df.loc[mask_eigen, "Netto"] * (float(provision_eigen) / 100.0)
+            df.loc[mask_eigen, "Netto"] * (prov_eigen / 100.0)
         )
 
-        # --- Fremdleistungen: nur wenn Satz vorhanden ---
-        if pd.notna(provision_fremd):
+        # Fremdleistung: nur wenn Satz vorhanden
+        if pd.notna(prov_fremd):
+            prov_fremd = float(prov_fremd or 0)
             mask_fremd = df["Ist_Fremdleistung"]
             df.loc[mask_fremd, "Provision"] = (
-                df.loc[mask_fremd, "Netto"] * (float(provision_fremd) / 100.0)
+                df.loc[mask_fremd, "Netto"] * (prov_fremd / 100.0)
             )
         else:
-            # Mitarbeiter bekommt keine Fremdleistungsprovision → Fremdleistungsrechnungen raus
+            # keine Fremdleistungsprovision für diesen MA → Fremdleistungen raus
             df = df[~df["Ist_Fremdleistung"]]
 
-        # Nur Rechnungen mit Provision > 0 behalten
+        # nur Rechnungen mit Provision > 0 behalten
         df = df[df["Provision"] > 0]
 
         if df.empty:
             continue
 
-        # Mitarbeiter setzen
-        df["Mitarbeiter"] = name
-
+        df["Mitarbeiter"] = mitarbeiter
         alle.append(df)
 
     if not alle:
@@ -169,8 +156,7 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
 
     result = pd.concat(alle, ignore_index=True)
 
-    # Finale Spaltenauswahl
-    result = result[
+    return result[
         [
             "Mitarbeiter",
             "Rechnungsnummer",
@@ -182,5 +168,3 @@ def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick):
             "Ist_Fremdleistung",
         ]
     ]
-
-    return result
