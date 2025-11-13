@@ -30,7 +30,7 @@ def _draw_header(c, width, height, mitarbeiter: str, title_suffix: str = ""):
     """
     y = height - 40
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(40, y, "Provisionsabrechnung")
+    c.drawString(40, y, "Prämienabrechnung")
     y -= 20
     c.setFont("Helvetica", 12)
     c.drawString(40, y, f"Mitarbeiter: {mitarbeiter}")
@@ -45,7 +45,7 @@ def _draw_header(c, width, height, mitarbeiter: str, title_suffix: str = ""):
     c.setFont("Helvetica-Bold", 9)
 
     # Querformat → mehr Breite nutzen
-    # [Re-Nr., Kunde, Projekt, Datum, Art, Netto, Provision]
+    # [Re-Nr., Kunde, Projekt, Datum, Art, Netto, Prämie]
     col_x = [
         40,    # Rechnungsnummer
         120,   # Kunde
@@ -53,9 +53,9 @@ def _draw_header(c, width, height, mitarbeiter: str, title_suffix: str = ""):
         480,   # Datum
         540,   # Art
         600,   # Netto
-        700,   # Provision
+        700,   # Prämie
     ]
-    headers = ["Re-Nr.", "Kunde", "Projekt", "Datum", "Art", "Netto", "Provision"]
+    headers = ["Re-Nr.", "Kunde", "Projekt", "Datum", "Art", "Netto", "Prämie"]
 
     for x, h in zip(col_x, headers):
         c.drawString(x, y, h)
@@ -73,13 +73,13 @@ def exportiere_pdfs_in_memory(df):
       - Kunde
       - Projekt
       - Netto
-      - Provision
+      - Provision  (wird als Prämie ausgegeben)
       - Zahlungsdatum
       - Status
       - Ist_Fremdleistung (bool)
 
     Block A: Bezahlte Rechnungen (Auszahlungsbasis)
-    Block B: Offene Rechnungen (Vorschau, nicht in Auszahlungssumme enthalten)
+    Block B: Offene Rechnungen (Prämienvorschau, nicht in Auszahlungssumme)
     """
     dateien = []
 
@@ -121,19 +121,19 @@ def exportiere_pdfs_in_memory(df):
             # -------------------------
             y, col_x = _draw_header(
                 c, width, height, mitarbeiter,
-                "A) Bezahlte Rechnungen (Auszahlungsbasis)"
+                "A) Bezahlte Rechnungen – Prämienbasis"
             )
             c.setFont("Helvetica", 9)
 
             total_netto_paid = 0.0
-            total_prov_paid = 0.0
+            total_praemie_paid = 0.0
 
             for _, row in paid.iterrows():
                 if y < 60:
                     c.showPage()
                     y, col_x = _draw_header(
                         c, width, height, mitarbeiter,
-                        "A) Bezahlte Rechnungen (Auszahlungsbasis)"
+                        "A) Bezahlte Rechnungen – Prämienbasis"
                     )
                     c.setFont("Helvetica", 9)
 
@@ -143,10 +143,10 @@ def exportiere_pdfs_in_memory(df):
                 datum = _format_date(row.get("Zahlungsdatum"))
                 art = "Fremd" if bool(row.get("Ist_Fremdleistung")) else "Eigen"
                 netto = float(row.get("Netto", 0.0) or 0.0)
-                prov = float(row.get("Provision", 0.0) or 0.0)
+                praemie = float(row.get("Provision", 0.0) or 0.0)
 
                 total_netto_paid += netto
-                total_prov_paid += prov
+                total_praemie_paid += praemie
 
                 values = [
                     re_nr,
@@ -155,7 +155,7 @@ def exportiere_pdfs_in_memory(df):
                     datum,
                     art,
                     _format_eur(netto),
-                    _format_eur(prov),
+                    _format_eur(praemie),
                 ]
 
                 for x, v in zip(col_x, values):
@@ -168,7 +168,7 @@ def exportiere_pdfs_in_memory(df):
                 c.showPage()
                 y, col_x = _draw_header(
                     c, width, height, mitarbeiter,
-                    "A) Bezahlte Rechnungen (Auszahlungsbasis)"
+                    "A) Bezahlte Rechnungen – Prämienbasis"
                 )
                 c.setFont("Helvetica", 9)
                 y -= 10
@@ -177,30 +177,30 @@ def exportiere_pdfs_in_memory(df):
             c.line(40, y, width - 40, y)
             y -= 15
             c.setFont("Helvetica-Bold", 10)
-            c.drawString(40, y, "Summe auszuzahlende Provision:")
+            c.drawString(40, y, "Summe auszuzahlende Prämie:")
             c.drawString(col_x[5], y, _format_eur(total_netto_paid))
-            c.drawString(col_x[6], y, _format_eur(total_prov_paid))
+            c.drawString(col_x[6], y, _format_eur(total_praemie_paid))
 
             # -------------------------
-            # Block B: offene Rechnungen (Vorschau)
+            # Block B: offene Rechnungen (Prämienvorschau)
             # -------------------------
             if not open_.empty:
                 c.showPage()
                 y, col_x = _draw_header(
                     c, width, height, mitarbeiter,
-                    "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)"
+                    "B) Offene Rechnungen – Prämienvorschau (nicht auszahlungsrelevant)"
                 )
                 c.setFont("Helvetica", 9)
 
                 total_netto_open = 0.0
-                total_prov_open = 0.0
+                total_praemie_open = 0.0
 
                 for _, row in open_.iterrows():
                     if y < 60:
                         c.showPage()
                         y, col_x = _draw_header(
                             c, width, height, mitarbeiter,
-                            "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)"
+                            "B) Offene Rechnungen – Prämienvorschau (nicht auszahlungsrelevant)"
                         )
                         c.setFont("Helvetica", 9)
 
@@ -210,10 +210,10 @@ def exportiere_pdfs_in_memory(df):
                     datum = _format_date(row.get("Zahlungsdatum"))
                     art = "Fremd" if bool(row.get("Ist_Fremdleistung")) else "Eigen"
                     netto = float(row.get("Netto", 0.0) or 0.0)
-                    prov = float(row.get("Provision", 0.0) or 0.0)
+                    praemie = float(row.get("Provision", 0.0) or 0.0)
 
                     total_netto_open += netto
-                    total_prov_open += prov
+                    total_praemie_open += praemie
 
                     values = [
                         re_nr,
@@ -222,7 +222,7 @@ def exportiere_pdfs_in_memory(df):
                         datum,
                         art,
                         _format_eur(netto),
-                        _format_eur(prov),
+                        _format_eur(praemie),
                     ]
 
                     for x, v in zip(col_x, values):
@@ -235,7 +235,7 @@ def exportiere_pdfs_in_memory(df):
                     c.showPage()
                     y, col_x = _draw_header(
                         c, width, height, mitarbeiter,
-                        "B) Offene Rechnungen (Provisionsvorschau – nicht auszahlungsrelevant)"
+                        "B) Offene Rechnungen – Prämienvorschau (nicht auszahlungsrelevant)"
                     )
                     c.setFont("Helvetica", 9)
                     y -= 10
@@ -244,13 +244,13 @@ def exportiere_pdfs_in_memory(df):
                 c.line(40, y, width - 40, y)
                 y -= 15
                 c.setFont("Helvetica-Bold", 10)
-                c.drawString(40, y, "Summe Provisionsvorschau (offene Rechnungen):")
+                c.drawString(40, y, "Summe Prämienvorschau (offene Rechnungen):")
                 c.drawString(col_x[5], y, _format_eur(total_netto_open))
-                c.drawString(col_x[6], y, _format_eur(total_prov_open))
+                c.drawString(col_x[6], y, _format_eur(total_praemie_open))
 
             c.save()
             buffer.seek(0)
-            dateiname = f"provision_{str(mitarbeiter).replace(' ', '_')}.pdf"
+            dateiname = f"praemie_{str(mitarbeiter).replace(' ', '_')}.pdf"
             dateien.append((dateiname, buffer))
 
         except Exception as e:
