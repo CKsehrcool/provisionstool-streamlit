@@ -61,6 +61,18 @@ def erkenne_quelle(df: pd.DataFrame) -> str:
     )
 
 
+def _papierkram_datum(s: pd.Series) -> pd.Series:
+    """Papierkram exportiert je nach Einstellung TT.MM.JJ(JJ) oder US-Format M/T/JJ."""
+    s = s.astype("string").str.strip()
+    out = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
+    us = s.str.contains("/", na=False)
+    out[us] = pd.to_datetime(s[us], format="%m/%d/%y", errors="coerce")
+    for fmt in ("%d.%m.%Y", "%d.%m.%y"):
+        rest = ~us & out.isna() & s.notna()
+        out[rest] = pd.to_datetime(s[rest], format=fmt, errors="coerce")
+    return out
+
+
 def _normalisiere_papierkram(r: pd.DataFrame) -> pd.DataFrame:
     """Identisch zur Aufbereitung in V1."""
     r = r.copy()
@@ -85,7 +97,7 @@ def _normalisiere_papierkram(r: pd.DataFrame) -> pd.DataFrame:
              .str.replace(".", "", regex=False)
              .str.replace(",", ".", regex=False))
     r["Netto"] = pd.to_numeric(netto, errors="coerce").fillna(0.0)
-    r["Zahlungsdatum"] = pd.to_datetime(r["Zahlungsdatum"], errors="coerce", dayfirst=True)
+    r["Zahlungsdatum"] = _papierkram_datum(r["Zahlungsdatum"])
     r["Status"] = r["Status"].astype(str)
     r["Ist_Fremdleistung"] = (r["Fremdleistung"].fillna("").astype(str)
                               .str.strip().str.lower().isin(["ja", "yes", "y"]))
@@ -179,7 +191,8 @@ def berechne_aus_df(rechnungen: pd.DataFrame, provisionen: pd.DataFrame,
 
     status = rechnungen["Status"].astype(str)
     mask_bezahlt = (status == "Bezahlt") & (rechnungen["Zahlungsdatum"] >= cutoff)
-    mask_offen = status != "Bezahlt"
+    # Stornierte Rechnungen und Entwürfe gehören nicht in die Vorschau
+    mask_offen = ~status.isin(["Bezahlt", "Storniert", "Entwurf", "Gutgeschrieben"])
     rechnungen = rechnungen[mask_bezahlt | mask_offen].copy()
     if rechnungen.empty:
         return pd.DataFrame(columns=ERGEBNIS_SPALTEN)
