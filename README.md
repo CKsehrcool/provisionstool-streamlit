@@ -27,3 +27,22 @@ streamlit run app.py
 
 - Die PDF-Dateien werden in Memory erzeugt und direkt als ZIP-Datei zum Download bereitgestellt.
 - Lokale Speicherung ist nicht erforderlich.
+
+## Version 2 (Papierkram oder Odoo)
+
+```bash
+streamlit run app_v2.py
+```
+
+- `app.py` / `utils/logic.py` (V1) bleiben unverändert und laufen parallel.
+- `app_v2.py` / `utils/logic_v2.py` erkennen die Quelle automatisch:
+  - **Papierkram:** CSV-Export wie bisher (`;`, deutsches Zahlenformat).
+  - **Odoo:** XLSX-Export aus *Rechnungsstellung → Kunden → Rechnungen*, Exportvorlage „Prämie“ mit den Feldern
+    Nummer, Referenz, Kunde, Ein-/Ausgangsrechnungsdatum, Typ, Zahlungsstatus, Nettobetrag,
+    **Abgeglichene Zahlungen > Datum**, **Rechnungszeilen > Produkt > Produktkategorie**, Rechnungszeilen > Zwischensumme.
+- Fremdleistung in Odoo = Produktkategorie „Dienstleistungen / Fremdleistung“ (Produkte „… - Kooperationsprojekt“).
+  Gemischte Rechnungen werden zeilengenau in Eigen- und Fremdanteil getrennt.
+- Aus Papierkram übernommene Altrechnungen haben kein Produkt: Fremdleistung im Feld „übernommene Rechnungen mit Fremdleistung“ eintragen (Standard: R-00297).
+- „In Zahlung“ zählt als bezahlt; Gutschriften gehen negativ ein.
+- Prüfsumme: Netto aller Rechnungszeilen = Netto der Rechnungsköpfe, sonst Abbruch mit Meldung.
+- Rechenlogik (Sätze, Zeitraum, offene Rechnungen als Vorschau) identisch zu V1; mit dem Papierkram-Export getestet: V1 = V2.
