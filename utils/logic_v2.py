@@ -185,12 +185,19 @@ def lade_rechnungen(datei, fremd_manuell=()) -> tuple[pd.DataFrame, str]:
 # Berechnung (Logik wie V1)
 # ---------------------------------------------------------------------------
 def berechne_aus_df(rechnungen: pd.DataFrame, provisionen: pd.DataFrame,
-                    monate_rueckblick: int, stichtag: datetime | None = None) -> pd.DataFrame:
-    stichtag = stichtag or datetime.now()
-    cutoff = stichtag - DateOffset(months=monate_rueckblick)
-
+                    monate_rueckblick: int | None = None, stichtag: datetime | None = None,
+                    von=None, bis=None) -> pd.DataFrame:
+    """Zeitraum nach Zahlungsdatum: fest von–bis (beide inklusive) oder – wie V1 –
+    rollierend die letzten N Monate ab Stichtag."""
     status = rechnungen["Status"].astype(str)
-    mask_bezahlt = (status == "Bezahlt") & (rechnungen["Zahlungsdatum"] >= cutoff)
+    zd = rechnungen["Zahlungsdatum"]
+    if von is not None and bis is not None:
+        von, bis = pd.Timestamp(von).normalize(), pd.Timestamp(bis).normalize()
+        im_zeitraum = (zd >= von) & (zd < bis + pd.Timedelta(days=1))
+    else:
+        stichtag = stichtag or datetime.now()
+        im_zeitraum = zd >= stichtag - DateOffset(months=monate_rueckblick or 1)
+    mask_bezahlt = (status == "Bezahlt") & im_zeitraum
     # Stornierte Rechnungen und Entwürfe gehören nicht in die Vorschau
     mask_offen = ~status.isin(["Bezahlt", "Storniert", "Entwurf", "Gutgeschrieben"])
     rechnungen = rechnungen[mask_bezahlt | mask_offen].copy()
@@ -224,8 +231,8 @@ def berechne_aus_df(rechnungen: pd.DataFrame, provisionen: pd.DataFrame,
     return pd.concat(alle, ignore_index=True)[ERGEBNIS_SPALTEN]
 
 
-def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick,
-                         fremd_manuell=()):
+def berechne_provisionen(rechnungen_file, provisionen_file, monate_rueckblick=None,
+                         fremd_manuell=(), von=None, bis=None):
     rechnungen, quelle = lade_rechnungen(rechnungen_file, fremd_manuell)
     provisionen = pd.read_excel(provisionen_file)
-    return berechne_aus_df(rechnungen, provisionen, monate_rueckblick), quelle
+    return berechne_aus_df(rechnungen, provisionen, monate_rueckblick, von=von, bis=bis), quelle

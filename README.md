@@ -45,4 +45,5 @@ streamlit run app_v2.py
 - Aus Papierkram übernommene Altrechnungen haben kein Produkt: Fremdleistung im Feld „übernommene Rechnungen mit Fremdleistung“ eintragen (Standard: R-00297).
 - „In Zahlung“ zählt als bezahlt; Gutschriften gehen negativ ein.
 - Prüfsumme: Netto aller Rechnungszeilen = Netto der Rechnungsköpfe, sonst Abbruch mit Meldung.
-- Rechenlogik (Sätze, Zeitraum, offene Rechnungen als Vorschau) identisch zu V1; mit dem Papierkram-Export getestet: V1 = V2.
+- Zeitraum: fest **Zahlungsdatum von–bis** (beide inklusive), vorbelegt mit dem Vormonat – jede Rechnung fällt genau in einen Abrechnungsmonat, unabhängig vom Rechentag (V1: rollierend „letzte N Monate ab heute“).
+- Rechenlogik (Sätze, offene Rechnungen als Vorschau) identisch zu V1; mit dem Papierkram-Export getestet: V1 = V2.

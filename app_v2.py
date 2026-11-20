@@ -1,4 +1,5 @@
 import streamlit as st
+from datetime import date, timedelta
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -16,9 +17,17 @@ provisionsdatei = st.file_uploader(
     "📂 Prämiensätze je Mitarbeiter (Excel: Mitarbeiter | Eigenleistung | Fremdleistung)",
     type=["xlsx"],
 )
-monate_rueckblick = st.slider(
-    "Zeitraum in Monaten (nur bezahlte Rechnungen ab)", min_value=1, max_value=12, value=1
-)
+# Zeitraum nach Zahlungsdatum – Standard: Vormonat
+_heute = date.today()
+_bis_default = _heute.replace(day=1) - timedelta(days=1)
+_von_default = _bis_default.replace(day=1)
+st.markdown("**Zeitraum (Zahlungsdatum)**")
+c_von, c_bis = st.columns(2)
+von = c_von.date_input("von", value=_von_default, format="DD.MM.YYYY")
+bis = c_bis.date_input("bis (einschließlich)", value=_bis_default, format="DD.MM.YYYY")
+if von > bis:
+    st.error("„von“ liegt nach „bis“.")
+    st.stop()
 fremd_manuell_txt = st.text_input(
     "Nur Odoo: aus Papierkram übernommene Rechnungen mit Fremdleistung (kommagetrennt)",
     value="R-00297",
@@ -34,14 +43,15 @@ if st.button("✅ Prämien berechnen"):
     else:
         try:
             df, quelle = berechne_provisionen(
-                rechnungsdatei, provisionsdatei, monate_rueckblick,
-                fremd_manuell=fremd_manuell_txt.split(","),
+                rechnungsdatei, provisionsdatei,
+                fremd_manuell=fremd_manuell_txt.split(","), von=von, bis=bis,
             )
         except ValueError as e:
             st.error(str(e))
             st.stop()
 
-        st.info(f"Erkannte Quelle: **{'Odoo' if quelle == 'odoo' else 'Papierkram'}**")
+        st.info(f"Erkannte Quelle: **{'Odoo' if quelle == 'odoo' else 'Papierkram'}** · "
+                f"Zeitraum Zahlungsdatum: **{von:%d.%m.%Y} – {bis:%d.%m.%Y}**")
         if df.empty:
             st.warning("Keine relevanten Rechnungen für diesen Zeitraum gefunden.")
         else:
@@ -52,7 +62,7 @@ if st.button("✅ Prämien berechnen"):
             # Prüfsummen
             bezahlt = df[df["Status"] == "Bezahlt"]
             basis = bezahlt.drop_duplicates(["Rechnungsnummer", "Ist_Fremdleistung"])
-            st.subheader("Prüfsummen (bezahlte Rechnungen)")
+            st.subheader(f"Prüfsummen (bezahlt {von:%d.%m.%Y} – {bis:%d.%m.%Y})")
             c1, c2, c3 = st.columns(3)
             c1.metric("Netto Eigenleistung", f"{basis.loc[~basis['Ist_Fremdleistung'], 'Netto'].sum():,.2f} €")
             c2.metric("Netto Fremdleistung", f"{basis.loc[basis['Ist_Fremdleistung'], 'Netto'].sum():,.2f} €")
