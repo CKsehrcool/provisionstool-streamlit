@@ -95,6 +95,12 @@ def _normalisiere_papierkram(r: pd.DataFrame) -> pd.DataFrame:
 
 def _normalisiere_odoo(r: pd.DataFrame, fremd_manuell=()) -> pd.DataFrame:
     r = r.copy()
+    # Spaltennamen tolerant zuordnen (Leerzeichen, Varianten je Odoo-Version)
+    r.columns = [str(c).strip() for c in r.columns]
+    if O_ZAHLDATUM not in r.columns:
+        kand = [c for c in r.columns if "zahlung" in c.lower() and c.lower().endswith("/datum")]
+        if kand:
+            r = r.rename(columns={kand[0]: O_ZAHLDATUM})
     # Kategorie kann auch direkt an der Zeile exportiert werden
     if O_KATEGORIE not in r.columns and "Rechnungszeilen/Produktkategorie" in r.columns:
         r = r.rename(columns={"Rechnungszeilen/Produktkategorie": O_KATEGORIE})
@@ -106,7 +112,8 @@ def _normalisiere_odoo(r: pd.DataFrame, fremd_manuell=()) -> pd.DataFrame:
     if O_ZAHLDATUM in hinweise:
         raise ValueError(
             f"Spalte '{O_ZAHLDATUM}' fehlt im Odoo-Export. In der Exportvorlage "
-            "'Abgeglichene Zahlungen > Datum' wählen (nicht nur 'Abgeglichene Zahlungen')."
+            "'Abgeglichene Zahlungen > Datum' wählen (nicht nur 'Abgeglichene Zahlungen'). "
+            f"Gefundene Spalten: {', '.join(c for c in r.columns if c not in hinweise)}"
         )
 
     # Kopfdaten stehen nur in der ersten Zeile je Rechnung → auffüllen
