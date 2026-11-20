@@ -95,6 +95,9 @@ def _normalisiere_papierkram(r: pd.DataFrame) -> pd.DataFrame:
 
 def _normalisiere_odoo(r: pd.DataFrame, fremd_manuell=()) -> pd.DataFrame:
     r = r.copy()
+    # Kategorie kann auch direkt an der Zeile exportiert werden
+    if O_KATEGORIE not in r.columns and "Rechnungszeilen/Produktkategorie" in r.columns:
+        r = r.rename(columns={"Rechnungszeilen/Produktkategorie": O_KATEGORIE})
     hinweise = []
     for sp in (O_ZAHLDATUM, O_KATEGORIE, O_ZEILE_NETTO, O_REF, O_KUNDE, O_TYP):
         if sp not in r.columns:
